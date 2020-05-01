@@ -5,134 +5,184 @@ CONSTANTS pool_size, threshold, no_of_msgs
 
 (* --algorithm ThresholdMix
 
-variables recieved_msgs, sent_msgs, msgs_in_buffer, messages = 1..no_of_msgs, buffer_lock = FALSE;
-
-define 
-    LEN(s) == Cardinality(s) \* Added operator for convinience
-    APPEND(base, newValue) == base \o newValue
-end define
-
-macro unlock_mix_buffer() begin
-    buffer_lock := FALSE;
-end macro
-
-macro lock_mix_buffer() begin
-    await buffer_lock = FALSE;
-    buffer_lock := TRUE;
-end macro;
-
-macro forward_msgs_to_reciever() begin
-    sent_msgs := APPEND(sent_msgs, sent_msgs);
-end macro;
+variables recieved_msgs = <<>>,
+msgs_in_buffer = <<>>, 
+messages = <<1,2,3,4,5,6,7,8>>, 
+buffer_lock = FALSE,
+i = 1,
+check = 1;
 
 macro forward_msg_to_mix(msg) begin
-    msgs_in_buffer := APPEND(msgs_in_buffer, msg);
+    
 end macro;
 
-process mix_msg_forwarder = 0
+macro forward_msgs_to_recipient() begin
+    recieved_msgs := recieved_msgs \o msgs_in_buffer
+    ||
+    msgs_in_buffer := <<>>
+end macro;
+
+procedure lock() begin
+  LOCK: await buffer_lock = FALSE;
+  buffer_lock := TRUE;
+  return;
+end procedure;
+
+procedure unlock() begin
+  UNLOCK:buffer_lock := FALSE;
+  return;
+end procedure;
+
+fair process mix_msg_forwarder = "mix"
 begin FORWARD:
         while TRUE do
-            if LEN(msgs_in_buffer) = threshold then
-                LOCK: lock_mix_buffer();
-                forward_msgs_to_reciever();
-                UNLOCK: unlock_mix_buffer();
+            MIX_LOCK: call lock();
+            
+            FORWARD_TO_RECIPIENT_CHECK:
+            if Len(msgs_in_buffer) = threshold then
+                forward_msgs_to_recipient();
             end if;
+            check := check + 1;
+            MIX_UNLOCK: call unlock();
         end while;
 end process;
 
-process send_messages = 1 \* only one client for now
-variables i = 0;
+fair process send_messages = "client"
 begin CLIENT:
-    while sent_msgs < LEN(messages) do
-        LOCK: lock_mix_buffer();
-        forward_msg_to_mix(messages.i);
-        UNLOCK: unlock_mix_buffer();
+    while i <= Len(messages) do
+        CLIENT_LOCK: call lock();
+        FORWARD_TO_MIX: 
+        msgs_in_buffer := msgs_in_buffer \o <<messages[i]>>
+        ||
         i := i + 1;
-    end while
+        CLIENT_UNLOCK: call unlock();
+    end while;
 end process
 
 end algorithm; *)
 \* BEGIN TRANSLATION
-\* Label LOCK of process mix_msg_forwarder at line 20 col 5 changed to LOCK_
-\* Label UNLOCK of process mix_msg_forwarder at line 16 col 5 changed to UNLOCK_
-CONSTANT defaultInitValue
-VARIABLES recieved_msgs, sent_msgs, msgs_in_buffer, messages, buffer_lock, pc
+VARIABLES recieved_msgs, msgs_in_buffer, messages, buffer_lock, i, check, pc, 
+          stack
 
-(* define statement *)
-LEN(s) == Cardinality(s)
-APPEND(base, newValue) == base \o newValue
+vars == << recieved_msgs, msgs_in_buffer, messages, buffer_lock, i, check, pc, 
+           stack >>
 
-VARIABLE i
-
-vars == << recieved_msgs, sent_msgs, msgs_in_buffer, messages, buffer_lock, 
-           pc, i >>
-
-ProcSet == {0} \cup {1}
+ProcSet == {"mix"} \cup {"client"}
 
 Init == (* Global variables *)
-        /\ recieved_msgs = defaultInitValue
-        /\ sent_msgs = defaultInitValue
-        /\ msgs_in_buffer = defaultInitValue
-        /\ messages = 1..no_of_msgs
+        /\ recieved_msgs = <<>>
+        /\ msgs_in_buffer = <<>>
+        /\ messages = <<1,2,3,4,5,6,7,8>>
         /\ buffer_lock = FALSE
-        (* Process send_messages *)
-        /\ i = 0
-        /\ pc = [self \in ProcSet |-> CASE self = 0 -> "FORWARD"
-                                        [] self = 1 -> "CLIENT"]
+        /\ i = 1
+        /\ check = 1
+        /\ stack = [self \in ProcSet |-> << >>]
+        /\ pc = [self \in ProcSet |-> CASE self = "mix" -> "FORWARD"
+                                        [] self = "client" -> "CLIENT"]
 
-FORWARD == /\ pc[0] = "FORWARD"
-           /\ IF LEN(msgs_in_buffer) = threshold
-                 THEN /\ pc' = [pc EXCEPT ![0] = "LOCK_"]
-                 ELSE /\ pc' = [pc EXCEPT ![0] = "FORWARD"]
-           /\ UNCHANGED << recieved_msgs, sent_msgs, msgs_in_buffer, messages, 
-                           buffer_lock, i >>
+LOCK(self) == /\ pc[self] = "LOCK"
+              /\ buffer_lock = FALSE
+              /\ buffer_lock' = TRUE
+              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+              /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, i, 
+                              check >>
 
-LOCK_ == /\ pc[0] = "LOCK_"
-         /\ buffer_lock = FALSE
-         /\ buffer_lock' = TRUE
-         /\ sent_msgs' = APPEND(sent_msgs, sent_msgs)
-         /\ pc' = [pc EXCEPT ![0] = "UNLOCK_"]
-         /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, i >>
+lock(self) == LOCK(self)
 
-UNLOCK_ == /\ pc[0] = "UNLOCK_"
-           /\ buffer_lock' = FALSE
-           /\ pc' = [pc EXCEPT ![0] = "FORWARD"]
-           /\ UNCHANGED << recieved_msgs, sent_msgs, msgs_in_buffer, messages, 
-                           i >>
+UNLOCK(self) == /\ pc[self] = "UNLOCK"
+                /\ buffer_lock' = FALSE
+                /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, i, 
+                                check >>
 
-mix_msg_forwarder == FORWARD \/ LOCK_ \/ UNLOCK_
+unlock(self) == UNLOCK(self)
 
-CLIENT == /\ pc[1] = "CLIENT"
-          /\ IF sent_msgs < LEN(messages)
-                THEN /\ pc' = [pc EXCEPT ![1] = "LOCK"]
-                ELSE /\ pc' = [pc EXCEPT ![1] = "Done"]
-          /\ UNCHANGED << recieved_msgs, sent_msgs, msgs_in_buffer, messages, 
-                          buffer_lock, i >>
+FORWARD == /\ pc["mix"] = "FORWARD"
+           /\ pc' = [pc EXCEPT !["mix"] = "MIX_LOCK"]
+           /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, 
+                           buffer_lock, i, check, stack >>
 
-LOCK == /\ pc[1] = "LOCK"
-        /\ buffer_lock = FALSE
-        /\ buffer_lock' = TRUE
-        /\ msgs_in_buffer' = APPEND(msgs_in_buffer, (messages.i))
-        /\ pc' = [pc EXCEPT ![1] = "UNLOCK"]
-        /\ UNCHANGED << recieved_msgs, sent_msgs, messages, i >>
+MIX_LOCK == /\ pc["mix"] = "MIX_LOCK"
+            /\ stack' = [stack EXCEPT !["mix"] = << [ procedure |->  "lock",
+                                                      pc        |->  "FORWARD_TO_RECIPIENT_CHECK" ] >>
+                                                  \o stack["mix"]]
+            /\ pc' = [pc EXCEPT !["mix"] = "LOCK"]
+            /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, 
+                            buffer_lock, i, check >>
 
-UNLOCK == /\ pc[1] = "UNLOCK"
-          /\ buffer_lock' = FALSE
-          /\ i' = i + 1
-          /\ pc' = [pc EXCEPT ![1] = "CLIENT"]
-          /\ UNCHANGED << recieved_msgs, sent_msgs, msgs_in_buffer, messages >>
+FORWARD_TO_RECIPIENT_CHECK == /\ pc["mix"] = "FORWARD_TO_RECIPIENT_CHECK"
+                              /\ IF Len(msgs_in_buffer) = threshold
+                                    THEN /\ /\ msgs_in_buffer' = <<>>
+                                            /\ recieved_msgs' = recieved_msgs \o msgs_in_buffer
+                                    ELSE /\ TRUE
+                                         /\ UNCHANGED << recieved_msgs, 
+                                                         msgs_in_buffer >>
+                              /\ check' = check + 1
+                              /\ pc' = [pc EXCEPT !["mix"] = "MIX_UNLOCK"]
+                              /\ UNCHANGED << messages, buffer_lock, i, stack >>
 
-send_messages == CLIENT \/ LOCK \/ UNLOCK
+MIX_UNLOCK == /\ pc["mix"] = "MIX_UNLOCK"
+              /\ stack' = [stack EXCEPT !["mix"] = << [ procedure |->  "unlock",
+                                                        pc        |->  "FORWARD" ] >>
+                                                    \o stack["mix"]]
+              /\ pc' = [pc EXCEPT !["mix"] = "UNLOCK"]
+              /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, 
+                              buffer_lock, i, check >>
+
+mix_msg_forwarder == FORWARD \/ MIX_LOCK \/ FORWARD_TO_RECIPIENT_CHECK
+                        \/ MIX_UNLOCK
+
+CLIENT == /\ pc["client"] = "CLIENT"
+          /\ IF i <= Len(messages)
+                THEN /\ pc' = [pc EXCEPT !["client"] = "CLIENT_LOCK"]
+                ELSE /\ pc' = [pc EXCEPT !["client"] = "Done"]
+          /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, buffer_lock, 
+                          i, check, stack >>
+
+CLIENT_LOCK == /\ pc["client"] = "CLIENT_LOCK"
+               /\ stack' = [stack EXCEPT !["client"] = << [ procedure |->  "lock",
+                                                            pc        |->  "FORWARD_TO_MIX" ] >>
+                                                        \o stack["client"]]
+               /\ pc' = [pc EXCEPT !["client"] = "LOCK"]
+               /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, 
+                               buffer_lock, i, check >>
+
+FORWARD_TO_MIX == /\ pc["client"] = "FORWARD_TO_MIX"
+                  /\ /\ i' = i + 1
+                     /\ msgs_in_buffer' = msgs_in_buffer \o <<messages[i]>>
+                  /\ pc' = [pc EXCEPT !["client"] = "CLIENT_UNLOCK"]
+                  /\ UNCHANGED << recieved_msgs, messages, buffer_lock, check, 
+                                  stack >>
+
+CLIENT_UNLOCK == /\ pc["client"] = "CLIENT_UNLOCK"
+                 /\ stack' = [stack EXCEPT !["client"] = << [ procedure |->  "unlock",
+                                                              pc        |->  "CLIENT" ] >>
+                                                          \o stack["client"]]
+                 /\ pc' = [pc EXCEPT !["client"] = "UNLOCK"]
+                 /\ UNCHANGED << recieved_msgs, msgs_in_buffer, messages, 
+                                 buffer_lock, i, check >>
+
+send_messages == CLIENT \/ CLIENT_LOCK \/ FORWARD_TO_MIX \/ CLIENT_UNLOCK
 
 Next == mix_msg_forwarder \/ send_messages
+           \/ (\E self \in ProcSet: lock(self) \/ unlock(self))
 
-Spec == Init /\ [][Next]_vars
+Spec == /\ Init /\ [][Next]_vars
+        /\ /\ WF_vars(mix_msg_forwarder)
+           /\ WF_vars(lock("mix"))
+           /\ WF_vars(unlock("mix"))
+        /\ /\ WF_vars(send_messages)
+           /\ WF_vars(lock("client"))
+           /\ WF_vars(unlock("client"))
 
 \* END TRANSLATION
-
-NoMessageLoss == ((recieved_msgs \UNION sent_msgs) \UNION msgs_in_buffer) = messages
-NoMessageDuplication == LEN(recieved_msgs) + LEN(sent_msgs) + LEN(msgs_in_buffer) = no_of_msgs
+\*
+NoBufferOverflows == Len(msgs_in_buffer) <= threshold
+AllMessagesRecieved == <>(Len(recieved_msgs) = 8)
+NoMessageDuplication == Len(recieved_msgs) + Len(msgs_in_buffer) = i - 1
 =============================================================================
 \* Modification History
-\* Last modified Mon Apr 27 14:58:34 CDT 2020 by shiva
+\* Last modified Fri May 01 11:58:38 CDT 2020 by shiva
 \* Created Sun Apr 26 20:17:15 CDT 2020 by shiva
