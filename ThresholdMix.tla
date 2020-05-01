@@ -162,9 +162,9 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 \*
 NoBufferOverflows == Len(msgs_in_buffer) <= threshold
 IsDivisible == Len(messages) % threshold = 0
-AllMessagesRecieved == (IsDivisible /\ stop_listening) ~> (Len(recieved_msgs) = Len(messages))
+AllMessagesRecieved == IsDivisible /\ stop_listening ~> (Len(recieved_msgs) = Len(messages))
 NoMessageDuplication == Len(recieved_msgs) + Len(msgs_in_buffer) = i - 1
 =============================================================================
 \* Modification History
-\* Last modified Fri May 01 14:19:14 CDT 2020 by shiva
+\* Last modified Fri May 01 14:31:57 CDT 2020 by shiva
 \* Created Sun Apr 26 20:17:15 CDT 2020 by shiva
