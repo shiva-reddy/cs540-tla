@@ -7,164 +7,224 @@ CONSTANTS threshold, messages
 
 variables recieved_msgs = <<>>,
 msgs_in_buffer = <<>>, 
-buffer_lock = "",
+wants_to_enter = <<FALSE, FALSE>>,
 i = 1,
-stop_listening = FALSE;
-check = 1;
-
-macro forward_msgs_to_recipient() begin
-    recieved_msgs := recieved_msgs \o msgs_in_buffer
-    ||
-    msgs_in_buffer := <<>>
-end macro;
+turn = 1;
 
 fair process mix_msg_forwarder = "mix"
 begin MIX_PROCESS_INIT:
-        while stop_listening = FALSE do
-            if buffer_lock # "mix" then
-                MIX_LOCK: await (buffer_lock = "");
-                buffer_lock := "mix";
-             end if;
+        while TRUE do
+        
+            P01:wants_to_enter[1] := TRUE;
+            p0While: while wants_to_enter[2] do
+            P02:if turn = 2 then
+                P03:wants_to_enter[1] := FALSE;
+                P04:await turn # 2;
+                P05:wants_to_enter[1] := TRUE;
+                end if;
+            end while;
             
+            csm: skip;
             FORWARD_TO_RECIPIENT_CHECK:
             if Len(msgs_in_buffer) >= threshold then
-                forward_msgs_to_recipient();
+                M3:recieved_msgs := recieved_msgs \o msgs_in_buffer;
+                msgs_in_buffer := <<>>;
             end if;
-            if i = Len(messages) + 1 then
-                stop_listening := TRUE
-            end if;
-            MIX_UNLOCK: buffer_lock := "";
+            
+            P08: turn := 2;
+            P09: wants_to_enter[1] := FALSE;
         end while;
 end process;
 
 fair process send_messages = "client"
 begin CLIENT:
     while i <= Len(messages) do
-        if buffer_lock # "client" then
-            CLIENT_LOCK: await (buffer_lock = "");
-            await Len(msgs_in_buffer) < threshold;
-            buffer_lock := "client";
-        end if;
-            
+    
+        P11:wants_to_enter[2] := TRUE;
+        p1While: while wants_to_enter[1] do
+            P12:if turn = 1 then
+                P13:wants_to_enter[2] := FALSE;
+                P14:await turn # 1;
+                P15:wants_to_enter[2] := TRUE;
+            end if;
+        end while;
+        
+        csc: skip;
         FORWARD_TO_MIX: 
-        msgs_in_buffer := msgs_in_buffer \o <<messages[i]>>
-        ||
+        msgs_in_buffer := msgs_in_buffer \o <<messages[i]>>;
         i := i + 1;
-        CLIENT_UNLOCK: buffer_lock := "";
+        
+        P18:turn := 1;
+        P19:wants_to_enter[2] := FALSE;
     end while;
 end process
 
 end algorithm; *)
 \* BEGIN TRANSLATION
-VARIABLES recieved_msgs, msgs_in_buffer, buffer_lock, i, stop_listening, 
-          check, pc
+VARIABLES recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn, pc
 
-vars == << recieved_msgs, msgs_in_buffer, buffer_lock, i, stop_listening, 
-           check, pc >>
+vars == << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn, pc >>
 
 ProcSet == {"mix"} \cup {"client"}
 
 Init == (* Global variables *)
         /\ recieved_msgs = <<>>
         /\ msgs_in_buffer = <<>>
-        /\ buffer_lock = ""
+        /\ wants_to_enter = <<FALSE, FALSE>>
         /\ i = 1
-        /\ stop_listening = FALSE
-        /\ check = 1
+        /\ turn = 1
         /\ pc = [self \in ProcSet |-> CASE self = "mix" -> "MIX_PROCESS_INIT"
                                         [] self = "client" -> "CLIENT"]
 
 MIX_PROCESS_INIT == /\ pc["mix"] = "MIX_PROCESS_INIT"
-                    /\ IF stop_listening = FALSE
-                          THEN /\ IF buffer_lock # "mix"
-                                     THEN /\ pc' = [pc EXCEPT !["mix"] = "MIX_LOCK"]
-                                     ELSE /\ pc' = [pc EXCEPT !["mix"] = "FORWARD_TO_RECIPIENT_CHECK"]
-                          ELSE /\ pc' = [pc EXCEPT !["mix"] = "Done"]
-                    /\ UNCHANGED << recieved_msgs, msgs_in_buffer, buffer_lock, 
-                                    i, stop_listening, check >>
+                    /\ pc' = [pc EXCEPT !["mix"] = "P01"]
+                    /\ UNCHANGED << recieved_msgs, msgs_in_buffer, 
+                                    wants_to_enter, i, turn >>
+
+P01 == /\ pc["mix"] = "P01"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![1] = TRUE]
+       /\ pc' = [pc EXCEPT !["mix"] = "p0While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+p0While == /\ pc["mix"] = "p0While"
+           /\ IF wants_to_enter[2]
+                 THEN /\ pc' = [pc EXCEPT !["mix"] = "P02"]
+                 ELSE /\ pc' = [pc EXCEPT !["mix"] = "csm"]
+           /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, 
+                           turn >>
+
+P02 == /\ pc["mix"] = "P02"
+       /\ IF turn = 2
+             THEN /\ pc' = [pc EXCEPT !["mix"] = "P03"]
+             ELSE /\ pc' = [pc EXCEPT !["mix"] = "p0While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
+
+P03 == /\ pc["mix"] = "P03"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![1] = FALSE]
+       /\ pc' = [pc EXCEPT !["mix"] = "P04"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+P04 == /\ pc["mix"] = "P04"
+       /\ turn # 2
+       /\ pc' = [pc EXCEPT !["mix"] = "P05"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
+
+P05 == /\ pc["mix"] = "P05"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![1] = TRUE]
+       /\ pc' = [pc EXCEPT !["mix"] = "p0While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+csm == /\ pc["mix"] = "csm"
+       /\ TRUE
+       /\ pc' = [pc EXCEPT !["mix"] = "FORWARD_TO_RECIPIENT_CHECK"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
 
 FORWARD_TO_RECIPIENT_CHECK == /\ pc["mix"] = "FORWARD_TO_RECIPIENT_CHECK"
                               /\ IF Len(msgs_in_buffer) >= threshold
-                                    THEN /\ /\ msgs_in_buffer' = <<>>
-                                            /\ recieved_msgs' = recieved_msgs \o msgs_in_buffer
-                                    ELSE /\ TRUE
-                                         /\ UNCHANGED << recieved_msgs, 
-                                                         msgs_in_buffer >>
-                              /\ IF i = Len(messages) + 1
-                                    THEN /\ stop_listening' = TRUE
-                                    ELSE /\ TRUE
-                                         /\ UNCHANGED stop_listening
-                              /\ pc' = [pc EXCEPT !["mix"] = "MIX_UNLOCK"]
-                              /\ UNCHANGED << buffer_lock, i, check >>
+                                    THEN /\ pc' = [pc EXCEPT !["mix"] = "M3"]
+                                    ELSE /\ pc' = [pc EXCEPT !["mix"] = "P08"]
+                              /\ UNCHANGED << recieved_msgs, msgs_in_buffer, 
+                                              wants_to_enter, i, turn >>
 
-MIX_UNLOCK == /\ pc["mix"] = "MIX_UNLOCK"
-              /\ buffer_lock' = ""
-              /\ pc' = [pc EXCEPT !["mix"] = "MIX_PROCESS_INIT"]
-              /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, stop_listening, 
-                              check >>
+M3 == /\ pc["mix"] = "M3"
+      /\ recieved_msgs' = recieved_msgs \o msgs_in_buffer
+      /\ msgs_in_buffer' = <<>>
+      /\ pc' = [pc EXCEPT !["mix"] = "P08"]
+      /\ UNCHANGED << wants_to_enter, i, turn >>
 
-MIX_LOCK == /\ pc["mix"] = "MIX_LOCK"
-            /\ (buffer_lock = "")
-            /\ buffer_lock' = "mix"
-            /\ pc' = [pc EXCEPT !["mix"] = "FORWARD_TO_RECIPIENT_CHECK"]
-            /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, stop_listening, 
-                            check >>
+P08 == /\ pc["mix"] = "P08"
+       /\ turn' = 2
+       /\ pc' = [pc EXCEPT !["mix"] = "P09"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i >>
 
-mix_msg_forwarder == MIX_PROCESS_INIT \/ FORWARD_TO_RECIPIENT_CHECK
-                        \/ MIX_UNLOCK \/ MIX_LOCK
+P09 == /\ pc["mix"] = "P09"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![1] = FALSE]
+       /\ pc' = [pc EXCEPT !["mix"] = "MIX_PROCESS_INIT"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+mix_msg_forwarder == MIX_PROCESS_INIT \/ P01 \/ p0While \/ P02 \/ P03
+                        \/ P04 \/ P05 \/ csm \/ FORWARD_TO_RECIPIENT_CHECK
+                        \/ M3 \/ P08 \/ P09
 
 CLIENT == /\ pc["client"] = "CLIENT"
           /\ IF i <= Len(messages)
-                THEN /\ IF buffer_lock # "client"
-                           THEN /\ pc' = [pc EXCEPT !["client"] = "CLIENT_LOCK"]
-                           ELSE /\ pc' = [pc EXCEPT !["client"] = "FORWARD_TO_MIX"]
+                THEN /\ pc' = [pc EXCEPT !["client"] = "P11"]
                 ELSE /\ pc' = [pc EXCEPT !["client"] = "Done"]
-          /\ UNCHANGED << recieved_msgs, msgs_in_buffer, buffer_lock, i, 
-                          stop_listening, check >>
+          /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, 
+                          turn >>
+
+P11 == /\ pc["client"] = "P11"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![2] = TRUE]
+       /\ pc' = [pc EXCEPT !["client"] = "p1While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+p1While == /\ pc["client"] = "p1While"
+           /\ IF wants_to_enter[1]
+                 THEN /\ pc' = [pc EXCEPT !["client"] = "P12"]
+                 ELSE /\ pc' = [pc EXCEPT !["client"] = "csc"]
+           /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, 
+                           turn >>
+
+P12 == /\ pc["client"] = "P12"
+       /\ IF turn = 1
+             THEN /\ pc' = [pc EXCEPT !["client"] = "P13"]
+             ELSE /\ pc' = [pc EXCEPT !["client"] = "p1While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
+
+P13 == /\ pc["client"] = "P13"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![2] = FALSE]
+       /\ pc' = [pc EXCEPT !["client"] = "P14"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+P14 == /\ pc["client"] = "P14"
+       /\ turn # 1
+       /\ pc' = [pc EXCEPT !["client"] = "P15"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
+
+P15 == /\ pc["client"] = "P15"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![2] = TRUE]
+       /\ pc' = [pc EXCEPT !["client"] = "p1While"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
+
+csc == /\ pc["client"] = "csc"
+       /\ TRUE
+       /\ pc' = [pc EXCEPT !["client"] = "FORWARD_TO_MIX"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i, turn >>
 
 FORWARD_TO_MIX == /\ pc["client"] = "FORWARD_TO_MIX"
-                  /\ /\ i' = i + 1
-                     /\ msgs_in_buffer' = msgs_in_buffer \o <<messages[i]>>
-                  /\ pc' = [pc EXCEPT !["client"] = "CLIENT_UNLOCK"]
-                  /\ UNCHANGED << recieved_msgs, buffer_lock, stop_listening, 
-                                  check >>
+                  /\ msgs_in_buffer' = msgs_in_buffer \o <<messages[i]>>
+                  /\ i' = i + 1
+                  /\ pc' = [pc EXCEPT !["client"] = "P18"]
+                  /\ UNCHANGED << recieved_msgs, wants_to_enter, turn >>
 
-CLIENT_UNLOCK == /\ pc["client"] = "CLIENT_UNLOCK"
-                 /\ buffer_lock' = ""
-                 /\ pc' = [pc EXCEPT !["client"] = "CLIENT"]
-                 /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, 
-                                 stop_listening, check >>
+P18 == /\ pc["client"] = "P18"
+       /\ turn' = 1
+       /\ pc' = [pc EXCEPT !["client"] = "P19"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, wants_to_enter, i >>
 
-CLIENT_LOCK == /\ pc["client"] = "CLIENT_LOCK"
-               /\ (buffer_lock = "")
-               /\ Len(msgs_in_buffer) < threshold
-               /\ buffer_lock' = "client"
-               /\ pc' = [pc EXCEPT !["client"] = "FORWARD_TO_MIX"]
-               /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, 
-                               stop_listening, check >>
+P19 == /\ pc["client"] = "P19"
+       /\ wants_to_enter' = [wants_to_enter EXCEPT ![2] = FALSE]
+       /\ pc' = [pc EXCEPT !["client"] = "CLIENT"]
+       /\ UNCHANGED << recieved_msgs, msgs_in_buffer, i, turn >>
 
-send_messages == CLIENT \/ FORWARD_TO_MIX \/ CLIENT_UNLOCK \/ CLIENT_LOCK
-
-(* Allow infinite stuttering to prevent deadlock on termination. *)
-Terminating == /\ \A self \in ProcSet: pc[self] = "Done"
-               /\ UNCHANGED vars
+send_messages == CLIENT \/ P11 \/ p1While \/ P12 \/ P13 \/ P14 \/ P15
+                    \/ csc \/ FORWARD_TO_MIX \/ P18 \/ P19
 
 Next == mix_msg_forwarder \/ send_messages
-           \/ Terminating
 
 Spec == /\ Init /\ [][Next]_vars
         /\ WF_vars(mix_msg_forwarder)
         /\ WF_vars(send_messages)
 
-Termination == <>(\A self \in ProcSet: pc[self] = "Done")
-
 \* END TRANSLATION
 \*
+(*     PlusCal options (wf)                                                *)
 NoBufferOverflows == Len(msgs_in_buffer) <= threshold
 IsDivisible == Len(messages) % threshold = 0
-AllMessagesRecieved == IsDivisible /\ stop_listening ~> (Len(recieved_msgs) = Len(messages))
+AllMessagesRecieved == IsDivisible ~> (Len(recieved_msgs) = Len(messages))
+MutualExlusion == ~((pc["mix"] = "csm") /\ (pc["client"] = "csc"))
 NoMessageDuplication == Len(recieved_msgs) + Len(msgs_in_buffer) = i - 1
 =============================================================================
 \* Modification History
-\* Last modified Fri May 01 14:31:57 CDT 2020 by shiva
+\* Last modified Tue May 05 19:23:34 CDT 2020 by shiva
 \* Created Sun Apr 26 20:17:15 CDT 2020 by shiva
