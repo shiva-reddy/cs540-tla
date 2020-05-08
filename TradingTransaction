@@ -1,0 +1,137 @@
+------------------------------ MODULE basicHFT ------------------------------
+EXTENDS Integers, TLC
+
+CONSTANTS bigShareAmount,  \* The number of potential buyers in the simulation 
+          smallShareAmount  \* The initial price of the equity
+
+ASSUME /\ bigShareAmount \in Nat \ {0}
+       /\ smallShareAmount \in Nat \ {0}
+       
+       
+\* change smallAmount and bigAmount to share amounts
+\* 
+\* change = True (positive increase) or False (negative change)
+(*****************************************************************************
+--algorithm HFT {
+
+    variable b = 0,            
+    priceChanges = 1,   
+    price = 199;
+    shares = bigShareAmount;
+    prevPrice = price;
+    funds = 0;
+    
+    process (Trader = 0) { 
+        trade: while (TRUE) { 
+            await b = 0 ;      \* alternation flag - wait for your turn
+            if (price > prevPrice) {  
+                sell: 
+                    shares := shares - smallShareAmount;
+                    funds := funds + price*smallShareAmount;
+            }
+            else {
+                if (price<prevPrice){
+                buy: 
+                   shares := shares + smallShareAmount;
+                   funds := funds - price*smallShareAmount;
+                }
+                else
+                    goto releaseToMarket;
+            };
+            releaseToMarket: b := 1;  \* pass the turn
+        }
+    }
+
+    process (Market = 1) { 
+        changePrice: while (TRUE) { 
+            await b = 1 ; 
+            either
+            {
+                prevPrice := price;
+                price := priceChanges + price;
+            }
+            or
+            {
+                prevPrice := price;
+                price := price - priceChanges;
+            };
+            releaseToTrade: b := 0;  \* pass the turn
+        }
+    }
+}
+******************************************************************************)
+\* BEGIN TRANSLATION - the hash of the PCal code: PCal-ad02b8cc6d58e41a9292f009186c0b4a
+VARIABLES b, priceChanges, price, shares, prevPrice, funds, pc
+
+vars == << b, priceChanges, price, shares, prevPrice, funds, pc >>
+
+ProcSet == {0} \cup {1}
+
+Init == (* Global variables *)
+        /\ b = 0
+        /\ priceChanges = 1
+        /\ price = 199
+        /\ shares = bigShareAmount
+        /\ prevPrice = price
+        /\ funds = 0
+        /\ pc = [self \in ProcSet |-> CASE self = 0 -> "trade"
+                                        [] self = 1 -> "changePrice"]
+
+trade == /\ pc[0] = "trade"
+         /\ b = 0
+         /\ IF price > prevPrice
+               THEN /\ pc' = [pc EXCEPT ![0] = "sell"]
+               ELSE /\ IF price<prevPrice
+                          THEN /\ pc' = [pc EXCEPT ![0] = "buy"]
+                          ELSE /\ pc' = [pc EXCEPT ![0] = "releaseToMarket"]
+         /\ UNCHANGED << b, priceChanges, price, shares, prevPrice, funds >>
+
+releaseToMarket == /\ pc[0] = "releaseToMarket"
+                   /\ b' = 1
+                   /\ pc' = [pc EXCEPT ![0] = "trade"]
+                   /\ UNCHANGED << priceChanges, price, shares, prevPrice, 
+                                   funds >>
+
+sell == /\ pc[0] = "sell"
+        /\ shares' = shares - smallShareAmount
+        /\ funds' = funds + price*smallShareAmount
+        /\ pc' = [pc EXCEPT ![0] = "releaseToMarket"]
+        /\ UNCHANGED << b, priceChanges, price, prevPrice >>
+
+buy == /\ pc[0] = "buy"
+       /\ shares' = shares + smallShareAmount
+       /\ funds' = funds - price*smallShareAmount
+       /\ pc' = [pc EXCEPT ![0] = "releaseToMarket"]
+       /\ UNCHANGED << b, priceChanges, price, prevPrice >>
+
+Trader == trade \/ releaseToMarket \/ sell \/ buy
+
+changePrice == /\ pc[1] = "changePrice"
+               /\ b = 1
+               /\ \/ /\ prevPrice' = price
+                     /\ price' = priceChanges + price
+                  \/ /\ prevPrice' = price
+                     /\ price' = price - priceChanges
+               /\ pc' = [pc EXCEPT ![1] = "releaseToTrade"]
+               /\ UNCHANGED << b, priceChanges, shares, funds >>
+
+releaseToTrade == /\ pc[1] = "releaseToTrade"
+                  /\ b' = 0
+                  /\ pc' = [pc EXCEPT ![1] = "changePrice"]
+                  /\ UNCHANGED << priceChanges, price, shares, prevPrice, 
+                                  funds >>
+
+Market == changePrice \/ releaseToTrade
+
+Next == Trader \/ Market
+
+Spec == Init /\ [][Next]_vars
+
+\* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-48a0f15dd007fec2e7e705d9003b54a2
+
+\* No share left to trade
+NotBroke == (shares = 0) => (price < prevPrice)
+=============================================================================
+\* Modification History
+\* Last modified Fri May 08 13:49:28 CDT 2020 by keshvi
+\* Created Fri May 01 21:33:54 CDT 2020 by keshvi
