@@ -207,22 +207,9 @@ StarvationFree ==  ((pc[0] = "P01") ~> (pc[0] = "cs0")) /\((pc[1] = "P11") ~> (p
 DeadlockFree == ((pc[0] = "P04") => (pc[1] = "cs1")) /\ ((pc[1] = "P14") => (pc[0] = "cs0"))
                      
 (*     PlusCal options (wf)                                                *)
-(***************************************************************************)
-(*                               LIVENESS                                  *)
-(*                                                                         *)
-(* If you are a sophisticated PlusCal user and know a little temporal      *)
-(* logic, you can continue reading about the liveness properties of the    *)
-(* algorithm.                                                              *)
-(*                                                                         *)
-(* Dijkstra's algorithm is "deadlock free", which for a mutual exclusion   *)
-(* algorithm means that if some process is trying to enter its critical    *)
-(* section, then some process (not necessarily the same one) will          *)
-(* eventually enter its critical section.  Since a process begins trying   *)
-(* to enter its critical section when it is at the control point labeled   *)
-(* Li0, and it is in its critical section when it is at control point cs,  *)
-(* the following formula asserts deadlock freedom.                         *)
+
 (***************************************************************************)
 =============================================================================
 \* Modification History
-\* Last modified Tue May 05 18:14:13 CDT 2020 by shiva
+\* Last modified Fri May 08 18:25:05 CDT 2020 by shiva
 \* Created Sat May 02 14:24:47 CDT 2020 by shiva
